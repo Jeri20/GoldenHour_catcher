@@ -1,0 +1,442 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Golden Hour Walk</title>
+<style>
+  :root {
+    --bg: #f6f4ef; --card: #ffffff; --text: #1d1b18; --muted: #6a645c;
+    --accent: #b8620a; --accent-text: #ffffff; --border: #e2ddd4; --warn: #8a5a00; --warn-bg: #fff4d6;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #141312; --card: #1e1c1a; --text: #f1ede7; --muted: #a09a91;
+      --accent: #f0a85a; --accent-text: #2a1704; --border: #34312c; --warn: #f0c36a; --warn-bg: #3a2f14;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 17px/1.55 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  main { max-width: 680px; margin: 0 auto; padding: 32px 16px 56px; }
+  h1 { font-size: 1.8rem; margin: 0 0 4px; }
+  .sub { color: var(--muted); margin: 0 0 20px; }
+  input, select {
+    font: inherit; padding: 10px; border-radius: 10px; border: 1px solid var(--border);
+    background: var(--card); color: var(--text); width: 100%; max-width: 100%;
+  }
+  input:focus, select:focus, button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 12px; margin: 12px 0; }
+  .grid label { display: block; color: var(--muted); font-size: .85rem; margin-bottom: 4px; }
+  .grid .full { grid-column: 1 / -1; }
+  .row { display: flex; gap: 10px; align-items: center; margin: 12px 0; flex-wrap: wrap; }
+  button {
+    font: inherit; font-weight: 600; padding: 12px 22px; border: 0; border-radius: 10px;
+    background: var(--accent); color: var(--accent-text); cursor: pointer;
+  }
+  button:disabled { opacity: .5; cursor: not-allowed; }
+  button.ghost { background: transparent; color: var(--accent); border: 1px solid var(--border); padding: 8px 14px; font-size: .9rem; }
+  .row select { width: auto; }
+  .warn { background: var(--warn-bg); color: var(--warn); padding: 12px 14px; border-radius: 10px; margin-bottom: 16px; }
+  #progress { display: none; margin: 8px 0 16px; }
+  #track { height: 8px; background: var(--border); border-radius: 99px; overflow: hidden; }
+  #bar { height: 100%; width: 0; background: var(--accent); transition: width .2s; }
+  #ptext { display: block; color: var(--muted); font-size: .85rem; margin-top: 6px; }
+  #status { color: var(--muted); font-size: .9rem; margin: 4px 0 8px; min-height: 1.2em; }
+  #out { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 18px; margin-top: 8px; }
+  .label { color: var(--muted); font-size: .8rem; text-transform: uppercase; letter-spacing: .06em; margin: 0 0 6px; }
+  #result { font-size: 1.35rem; line-height: 1.4; font-weight: 600; margin: 0 0 14px; }
+  #facts { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 14px; padding: 0; list-style: none; }
+  #facts li { border: 1px solid var(--border); border-radius: 99px; padding: 3px 11px; font-size: .85rem; }
+  #facts b { font-weight: 600; }
+  #diag { white-space: pre-wrap; font: .85rem/1.5 ui-monospace, Menlo, Consolas, monospace; background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 12px; margin-top: 8px; }
+  footer { color: var(--muted); font-size: .85rem; margin-top: 28px; }
+</style>
+</head>
+<body>
+<main>
+  <h1 id="title">Golden Hour Walk</h1>
+  <p class="sub" id="sub">Tell it where you are. Get a walk plan timed to the best light.</p>
+
+  <div id="gpuwarn" class="warn" hidden>
+    No WebGPU in this browser, so the AI wording is off. You still get the exact times, with a plain written plan.
+  </div>
+  <div id="jswarn" class="warn" hidden></div>
+
+  <div class="grid">
+    <div class="full"><button id="loc" class="ghost" type="button">Use my location</button></div>
+    <div><label for="lat">Latitude</label><input id="lat" type="number" step="any" placeholder="11.1085"></div>
+    <div><label for="lon">Longitude</label><input id="lon" type="number" step="any" placeholder="77.3411"></div>
+    <div><label for="date">Date</label><input id="date" type="date"></div>
+    <div><label for="mode">When</label>
+      <select id="mode"><option value="evening">Evening</option><option value="morning">Morning</option></select></div>
+    <div><label for="walk">Walk length (minutes)</label><input id="walk" type="number" value="45" min="10" max="180"></div>
+    <div><label for="travel">Travel to the spot (minutes)</label><input id="travel" type="number" value="10" min="0" max="120"></div>
+    <div class="full"><label for="place">Where are you walking? (optional)</label>
+      <input id="place" maxlength="60" placeholder="by the water"></div>
+  </div>
+
+  <div class="row">
+    <button id="go">Plan my walk</button>
+    <select id="model" aria-label="Model"></select>
+    <button id="check" class="ghost" type="button">Check connection</button>
+  </div>
+
+  <div id="progress">
+    <div id="track"><div id="bar"></div></div>
+    <span id="ptext"></span>
+  </div>
+  <div id="status"></div>
+
+  <section id="out" hidden>
+    <p class="label">Your plan</p>
+    <p id="result"></p>
+    <ul id="facts"></ul>
+    <button class="ghost" id="copy">Copy</button>
+  </section>
+  <pre id="diag" hidden></pre>
+
+  <footer id="foot"></footer>
+</main>
+
+<script type="module">
+/* ============================================================
+   EDIT THIS BLOCK TO CHANGE THE WORDING, MODELS OR EXAMPLES
+   ============================================================ */
+const CONFIG = {
+  title: "Golden Hour Walk",
+  tagline: "Tell it where you are. Get a walk plan timed to the best light.",
+  buttonLabel: "Plan my walk",
+  footer: "All times are calculated in your browser with the NOAA solar formula, the same method Python's astral library uses. The open-weight AI model only writes the wording, and any reply that quotes a time the code did not calculate is replaced by a plain plan. Times show in your device's timezone, so use coordinates near where you are.",
+  models: [
+    { id: "Qwen2.5-1.5B-Instruct-q4f16_1-MLC", label: "Qwen 2.5 1.5B (~1 GB)" },
+    { id: "Llama-3.2-1B-Instruct-q4f16_1-MLC", label: "Llama 3.2 1B (fastest, ~0.7 GB)" },
+    { id: "Llama-3.2-3B-Instruct-q4f16_1-MLC", label: "Llama 3.2 3B (best quality, ~2 GB)" }
+  ],
+
+  // Golden hour = sun between -4 and +6 degrees from the horizon (same definition as astral)
+  goldenHighDeg: 6,
+  goldenLowDeg: -4,
+  sunriseSetDeg: -0.833,
+
+  systemPrompt: `You write short, warm walk plans from a list of facts.
+Reply with 2 sentences, under 45 words total. Plain text only, no markdown, no emojis.
+Use ONLY the times in the facts, copied exactly as written. Never invent times, weather or places.
+If a place is given, you may mention it once.`,
+
+  // Worked examples teach a small model the exact style and length wanted
+  examples: [
+    {
+      facts: "Walk type: evening\nLeave home at: 5:40 PM\nGolden hour starts: 5:55 PM\nSunset: 6:41 PM\nGolden hour ends: 7:09 PM\nWalk: 45 minutes\nPlace: by the water",
+      plan: "Leave at 5:40 PM so you reach the water as golden hour starts at 5:55 PM. Keep walking through sunset at 6:41 PM and enjoy the last light."
+    },
+    {
+      facts: "Walk type: morning\nLeave home at: 5:20 AM\nGolden hour starts: 5:32 AM\nSunrise: 6:04 AM\nGolden hour ends: 6:41 AM\nWalk: 30 minutes\nPlace: none",
+      plan: "Head out at 5:20 AM to be walking when golden hour starts at 5:32 AM. You will catch sunrise at 6:04 AM before the light turns bright."
+    }
+  ],
+
+  temperature: 0.2,
+  maxTokens: 110
+};
+/* ============================================================ */
+
+const $ = (id) => document.getElementById(id);
+
+$("title").textContent = CONFIG.title;
+document.title = CONFIG.title;
+$("sub").textContent = CONFIG.tagline;
+$("go").textContent = CONFIG.buttonLabel;
+$("foot").textContent = CONFIG.footer;
+$("date").value = new Date().toLocaleDateString("en-CA");
+
+const modelSel = $("model");
+for (const m of CONFIG.models) {
+  const o = document.createElement("option");
+  o.value = m.id; o.textContent = m.label;
+  modelSel.appendChild(o);
+}
+
+const hasGPU = "gpu" in navigator;
+if (!hasGPU) $("gpuwarn").hidden = false;
+
+if (["about:", "blob:", "data:"].includes(location.protocol)) {
+  $("jswarn").hidden = false;
+  $("jswarn").textContent =
+    "You seem to be viewing this inside a preview. Previews block the model download. " +
+    "Open the file in a normal Chrome or Edge tab, or use the hosted link.";
+}
+
+$("loc").addEventListener("click", () => {
+  navigator.geolocation.getCurrentPosition(
+    (p) => { $("lat").value = p.coords.latitude.toFixed(4); $("lon").value = p.coords.longitude.toFixed(4); },
+    () => { $("status").textContent = "Location is blocked. Type your coordinates instead."; }
+  );
+});
+
+/* ---------- Facts: solar maths (NOAA algorithm), no AI involved ---------- */
+const rad = (d) => (d * Math.PI) / 180;
+const deg = (r) => (r * 180) / Math.PI;
+
+function sunParams(ms) {
+  const jd = ms / 86400000 + 2440587.5;
+  const T = (jd - 2451545) / 36525;
+  const L0 = (280.46646 + T * (36000.76983 + T * 0.0003032)) % 360;
+  const M = 357.52911 + T * (35999.05029 - 0.0001537 * T);
+  const e = 0.016708634 - T * (0.000042037 + 0.0000001267 * T);
+  const C = Math.sin(rad(M)) * (1.914602 - T * (0.004817 + 0.000014 * T)) +
+            Math.sin(rad(2 * M)) * (0.019993 - 0.000101 * T) + Math.sin(rad(3 * M)) * 0.000289;
+  const omega = 125.04 - 1934.136 * T;
+  const lambda = L0 + C - 0.00569 - 0.00478 * Math.sin(rad(omega));
+  const eps0 = 23 + (26 + (21.448 - T * (46.815 + T * (0.00059 - T * 0.001813))) / 60) / 60;
+  const eps = eps0 + 0.00256 * Math.cos(rad(omega));
+  const decl = deg(Math.asin(Math.sin(rad(eps)) * Math.sin(rad(lambda))));
+  const y = Math.tan(rad(eps / 2)) ** 2;
+  const eq = 4 * deg(y * Math.sin(2 * rad(L0)) - 2 * e * Math.sin(rad(M)) +
+    4 * e * y * Math.sin(rad(M)) * Math.cos(2 * rad(L0)) - 0.5 * y * y * Math.sin(4 * rad(L0)) -
+    1.25 * e * e * Math.sin(2 * rad(M)));
+  return { decl, eq };
+}
+
+// Time (ms) when the sun crosses the given elevation, or null if it never does that day
+function crossing(lat, lon, [Y, Mo, D], elev, rising) {
+  const base = Date.UTC(Y, Mo - 1, D);
+  let min = 720 - 4 * lon;
+  for (let i = 0; i < 3; i++) {
+    const p = sunParams(base + min * 60000);
+    const c = (Math.sin(rad(elev)) - Math.sin(rad(lat)) * Math.sin(rad(p.decl))) /
+              (Math.cos(rad(lat)) * Math.cos(rad(p.decl)));
+    if (Math.abs(c) > 1) return null;
+    const H = deg(Math.acos(c));
+    const noon = 720 - 4 * lon - p.eq;
+    min = noon + (rising ? -4 * H : 4 * H);
+  }
+  return base + min * 60000;
+}
+
+const fmt = (ms) =>
+  new Intl.DateTimeFormat("en-US", { hour: "numeric", minute: "2-digit" }).format(new Date(ms)).replace(/\s/g, " ");
+
+function computeFacts({ lat, lon, ymd, evening, walk, travel }) {
+  const hi = CONFIG.goldenHighDeg, lo = CONFIG.goldenLowDeg, sr = CONFIG.sunriseSetDeg;
+  // Evening: golden hour starts when the sun drops to +6 and ends at -4. Morning is the reverse.
+  const gStart = crossing(lat, lon, ymd, evening ? hi : lo, !evening);
+  const gEnd = crossing(lat, lon, ymd, evening ? lo : hi, !evening);
+  const event = crossing(lat, lon, ymd, sr, !evening);
+  if (gStart == null || gEnd == null || event == null) return null;
+  const min = 60000;
+  return {
+    "Walk type": evening ? "evening" : "morning",
+    "Leave home at": fmt(gStart - travel * min),
+    "Golden hour starts": fmt(gStart),
+    [evening ? "Sunset" : "Sunrise"]: fmt(event),
+    "Golden hour ends": fmt(gEnd),
+    "Walk ends at": fmt(gStart + walk * min),
+    "Walk": walk + " minutes"
+  };
+}
+
+function factsText(f, place) {
+  const keep = ["Walk type", "Leave home at", "Golden hour starts", "Sunset", "Sunrise", "Golden hour ends", "Walk"];
+  return keep.filter((k) => k in f).map((k) => k + ": " + f[k]).join("\n") + "\nPlace: " + (place || "none");
+}
+
+function templatePlan(f, place) {
+  const spot = place ? " " + place : "";
+  return "Leave at " + f["Leave home at"] + " so you are" + spot + " when golden hour starts at " +
+    f["Golden hour starts"] + ". Walk for " + f["Walk"] + ", finishing around " + f["Walk ends at"] + ".";
+}
+
+// Guardrail: every clock time the model writes must be one the code calculated
+const norm = (t) => t.replace(/^0/, "");
+function grounded(text, f) {
+  const allowed = new Set(Object.values(f).flatMap((v) => (v.match(/\d{1,2}:\d{2}/g) || []).map(norm)));
+  const said = text.match(/\d{1,2}:\d{2}/g) || [];
+  return said.every((t) => allowed.has(norm(t)));
+}
+
+/* ---------- Words: open-weight model running in the browser ---------- */
+let webllm = null;
+async function loadWebLLM() {
+  if (webllm) return webllm;
+  const sources = [
+    "https://esm.run/@mlc-ai/web-llm",
+    "https://cdn.jsdelivr.net/npm/@mlc-ai/web-llm/+esm",
+    "https://esm.sh/@mlc-ai/web-llm"
+  ];
+  let lastErr = null;
+  for (const url of sources) {
+    try { webllm = await import(url); return webllm; } catch (e) { lastErr = e; }
+  }
+  throw new Error(
+    "Could not download the AI library. Check your internet connection, and try turning off ad blockers or a VPN. " +
+    "(Details: " + (lastErr && lastErr.message ? lastErr.message : lastErr) + ")"
+  );
+}
+
+let engine = null;
+let loadedModel = null;
+
+modelSel.addEventListener("change", async () => {
+  if (engine) { try { await engine.unload(); } catch (e) {} }
+  engine = null; loadedModel = null;
+});
+
+async function ensureEngine(modelId) {
+  if (engine && loadedModel === modelId) return;
+  $("progress").style.display = "block";
+  $("ptext").textContent = "Downloading the AI library…";
+  const lib = await loadWebLLM();
+  engine = await lib.CreateMLCEngine(modelId, {
+    initProgressCallback: (r) => {
+      $("bar").style.width = Math.round((r.progress || 0) * 100) + "%";
+      $("ptext").textContent = r.text || "Loading…";
+    }
+  });
+  loadedModel = modelId;
+  $("progress").style.display = "none";
+}
+
+function cleanPlan(raw) {
+  let t = (raw || "").trim().replace(/\n+/g, " ");
+  t = t.replace(/^(plan|walk plan)\s*[:\-]\s*/i, "").replace(/^["'“‘]+|["'”’]+$/g, "");
+  return t.trim();
+}
+
+$("go").addEventListener("click", async () => {
+  const lat = parseFloat($("lat").value), lon = parseFloat($("lon").value);
+  const status = $("status");
+  status.textContent = "";
+  if (!(lat >= -90 && lat <= 90) || !(lon >= -180 && lon <= 180) || !$("date").value) {
+    status.textContent = "Enter a latitude, longitude and date, or press Use my location.";
+    return;
+  }
+  const clamp = (v, a, b, d) => Math.min(b, Math.max(a, Number.isFinite(v) ? v : d));
+  const walk = clamp(parseInt($("walk").value, 10), 10, 180, 45);
+  const travel = clamp(parseInt($("travel").value, 10), 0, 120, 10);
+  const place = $("place").value.trim().slice(0, 60);
+  const facts = computeFacts({
+    lat, lon, ymd: $("date").value.split("-").map(Number),
+    evening: $("mode").value === "evening", walk, travel
+  });
+  const btn = $("go");
+  const original = btn.textContent;
+  $("diag").hidden = true;
+  if (!facts) {
+    $("out").hidden = true;
+    status.textContent = "The sun does not rise or set normally there on that date. Try another date or place.";
+    return;
+  }
+
+  btn.disabled = true;
+  let plan = templatePlan(facts, place);
+  let note = "Plain plan used: the AI model is not available in this browser.";
+  $("out").hidden = false;
+  $("result").textContent = plan;
+  $("facts").innerHTML = "";
+  for (const [k, v] of Object.entries(facts)) {
+    const li = document.createElement("li");
+    li.innerHTML = k + ": <b></b>";
+    li.querySelector("b").textContent = v;
+    $("facts").appendChild(li);
+  }
+
+  if (hasGPU) {
+    try {
+      btn.textContent = "Loading model…";
+      await ensureEngine(modelSel.value);
+      btn.textContent = "Writing plan…";
+      const messages = [{ role: "system", content: CONFIG.systemPrompt }];
+      for (const ex of CONFIG.examples) {
+        messages.push({ role: "user", content: ex.facts });
+        messages.push({ role: "assistant", content: ex.plan });
+      }
+      messages.push({ role: "user", content: factsText(facts, place) });
+      const res = await engine.chat.completions.create({
+        messages, temperature: CONFIG.temperature, max_tokens: CONFIG.maxTokens
+      });
+      const text = cleanPlan(res.choices[0]?.message?.content);
+      if (text && grounded(text, facts)) {
+        plan = text;
+        note = "Times calculated in your browser. Words by " + modelSel.selectedOptions[0].textContent.split(" (")[0] + ".";
+      } else {
+        note = "The AI quoted a time the code did not calculate, so a plain plan is shown instead.";
+      }
+    } catch (err) {
+      const msg = err && err.message ? err.message : String(err);
+      note = "The AI model could not run (" + msg + "). A plain plan is shown. Press Check connection to see what is failing.";
+      $("progress").style.display = "none";
+    }
+  }
+  $("result").textContent = plan;
+  status.textContent = note;
+  btn.textContent = original;
+  btn.disabled = false;
+});
+
+// Self-test: checks each step the model download depends on and shows which one fails
+$("check").addEventListener("click", async () => {
+  const chk = $("check");
+  chk.disabled = true;
+  const diag = $("diag");
+  diag.hidden = false;
+  const base = "https://huggingface.co/mlc-ai/" + modelSel.value + "/resolve/main/";
+  const lines = ["Page opened from: " + location.protocol +
+    (location.protocol === "about:" ? "  (a preview, which blocks downloads: open in a normal tab)" : "")];
+  const show = () => { diag.textContent = lines.join("\n"); };
+  let failures = 0;
+  const probe = async (label, fn) => {
+    lines.push("...   " + label); show();
+    const i = lines.length - 1;
+    try {
+      const info = await fn();
+      lines[i] = "OK    " + label + (info ? " (" + info + ")" : "");
+    } catch (e) {
+      failures++;
+      lines[i] = "FAIL  " + label + " : " + (e && e.message ? e.message : e);
+    }
+    show();
+  };
+  await probe("AI library host (cdn.jsdelivr.net)", async () => {
+    const r = await fetch("https://cdn.jsdelivr.net/npm/@mlc-ai/web-llm/package.json");
+    if (!r.ok) throw new Error("HTTP " + r.status);
+  });
+  await probe("Model settings (huggingface.co)", async () => {
+    const r = await fetch(base + "mlc-chat-config.json");
+    if (!r.ok) throw new Error("HTTP " + r.status);
+  });
+  await probe("Browser storage for caching the model", async () => {
+    if (!("caches" in self)) throw new Error("Cache storage is unavailable here (try the hosted https link)");
+    await caches.open("walk-test");
+  });
+  await probe("WebGPU graphics access", async () => {
+    if (!navigator.gpu) throw new Error("WebGPU is not available in this browser");
+    const a = await navigator.gpu.requestAdapter();
+    if (!a) throw new Error("No GPU adapter found (update Chrome or graphics drivers)");
+  });
+  lines.push("");
+  lines.push(failures === 0 ? "All checks passed." : "Some steps failed. The times still work without the AI.");
+  show();
+  chk.disabled = false;
+});
+
+$("copy").addEventListener("click", async () => {
+  try {
+    await navigator.clipboard.writeText($("result").textContent);
+    $("copy").textContent = "Copied";
+    setTimeout(() => ($("copy").textContent = "Copy"), 1500);
+  } catch (e) {}
+});
+</script>
+
+<script>
+  window.addEventListener("error", function (e) {
+    var w = document.getElementById("jswarn");
+    if (w && w.hidden) {
+      w.hidden = false;
+      w.textContent = "The page hit a script error: " + (e && e.message ? e.message : "unknown") +
+        ". Try a current version of Chrome or Edge, and reload.";
+    }
+  });
+</script>
+</body>
+</html>
